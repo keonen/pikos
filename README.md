@@ -20,11 +20,12 @@
 ## 🚀 Installation
 
 1. Install **MicroPython** on your Raspberry Pi Pico 2W.
-2. Download all `.py` files from this repository.
-3. Open `main.py` and update your Wi-Fi credentials:
+2. Install these packages to your Raspberry Pi Pico 2W: **microdot**, **micropython-pcd8544**
+3. Download all `.py` files from this repository.
+4. Open `main.py` and update your Wi-Fi credentials:
    ```python
    WIFI_SSID = "your_wifi_name"
    WIFI_PASS = "your_password"
    ```
-4. Open weather_app.py and add your OpenWeatherMap API key. You can get a free key from the OpenWeatherMap Portal.
-5. Open news_app.py and add your Yle API app_id and app_key. Register for free keys at the Yle Developers Portal.
+5. Open weather_app.py and add your OpenWeatherMap API key. You can get a free key from the OpenWeatherMap Portal.
+6. Open news_app.py and add your Yle API app_id and app_key. Register for free keys at the Yle Developers Portal.
