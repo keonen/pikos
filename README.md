@@ -14,7 +14,7 @@
 
 ## 🛠 Hardware Connection (Pinout)
 
-[Technical Wiring Guide & Pinout](https://www.pavelp.cz)
+[Technical Wiring Guide & Pinout](https://www.pavelp.cz/posts/eng-raspberry-pico-nokia-display/)
 
 ## 🚀 Installation
 
