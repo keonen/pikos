@@ -23,6 +23,7 @@
 3. Open `main.py` and update your Wi-Fi credentials:
    ```python
    WIFI_SSID = "your_wifi_name"
-   WIFI_PASS = "your_password"```
+   WIFI_PASS = "your_password"
+   ```
 4. Open weather_app.py and add your OpenWeatherMap API key. You can get a free key from the OpenWeatherMap Portal.
 5. Open news_app.py and add your Yle API app_id and app_key. Register for free keys at the Yle Developers Portal.
