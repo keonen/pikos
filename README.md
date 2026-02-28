@@ -2,6 +2,7 @@
 
 **pikOS** is a lightweight, modular "operating system" designed for the **Raspberry Pi Pico 2W** and the classic **Nokia 5110 (PCD8544)** LCD. It transforms your Pico into an interactive information display with a mobile-friendly Web UI for remote control.
 
+![pikOS web UI](img/web_ui.jpg)
 
 ## ✨ Features
 
