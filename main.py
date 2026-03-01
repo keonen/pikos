@@ -13,6 +13,7 @@ from weather_app import WeatherApp
 from clock_app import ClockApp
 from news_app import NewsApp
 from snake_app import SnakeApp
+from ruuvitag_app import RuuviTagApp
 
 # --- ASETUKSET ---
 WIFI_SSID = "MYWIFI"
@@ -42,9 +43,10 @@ class PikOS:
             "weather": WeatherApp(),
             "clock": ClockApp(),
             "news": NewsApp(),
-            "snake": SnakeApp()
+            "snake": SnakeApp(),
+            "ruuvi": RuuviTagApp()
         }
-        self.app_cycle = ["menu", "weather", "clock", "news"]
+        self.app_cycle = ["menu", "weather", "clock", "news", "ruuvi"]
         self.autoplay = True
         self.ip = "0.0.0.0"
         self.tiny_font = {
@@ -205,6 +207,8 @@ class PikOS:
                 self.active_app_name = "news"; self.autoplay = False
             elif "id=menu" in request: 
                 self.active_app_name = "menu"; self.autoplay = False
+            elif "id=ruuvi" in request: 
+                self.active_app_name = "ruuvi"; self.autoplay = False
 
 
             # HTML VALINTA
@@ -287,7 +291,8 @@ class PikOS:
             <a href="/app?id=weather" class="btn">WEATHER</a>
             <a href="/app?id=clock" class="btn">CLOCK</a>
             <a href="/app?id=news" class="btn">NEWS</a>
-            <a href="/app?id=menu" class="btn btn-green">INFO</a>
+            <a href="/app?id=ruuvi" class="btn">RUUVITAG</a>
+            <a href="/app?id=menu" class="btn">INFO</a>
 
             <script>
                 // Päivitetään kuva kerran sekunnissa ilman sivun latausta

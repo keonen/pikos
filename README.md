@@ -29,3 +29,4 @@
    ```
 5. Open weather_app.py and add your OpenWeatherMap API key. You can get a free key from the OpenWeatherMap Portal.
 6. Open news_app.py and add your Yle API app_id and app_key. Register for free keys at the Yle Developers Portal.
+7. Open ruuvitag_app.py and add your RuuviTag sensor target_mac="AA:BB:CC:DD:EE:FF"
