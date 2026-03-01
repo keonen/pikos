@@ -1,11 +1,13 @@
 import network
 import uasyncio
 import urequests
-from machine import Pin, SPI, RTC
 import framebuf
 import pcd8544
 import ntptime
 import time
+import gc
+import machine
+from machine import Pin, SPI, RTC, ADC
 
 from weather_app import WeatherApp
 from clock_app import ClockApp
@@ -29,8 +31,12 @@ fb = framebuf.FrameBuffer(buffer, 84, 48, framebuf.MONO_VLSB)
 bl = Pin(13, Pin.OUT)
 bl.value(1)
 
+# Alustetaan lämpötila-anturi luokan ulkopuolella (pysyy globaalina)
+temp_sensor = machine.ADC(4)
+
 class PikOS:
     def __init__(self):
+        self.start_time = time.ticks_ms() # Lisää tämä uptimea varten
         self.active_app_name = "menu"
         self.apps = {
             "weather": WeatherApp(),
@@ -46,7 +52,7 @@ class PikOS:
             'D':[0x6,0x5,0x5,0x5,0x6],'E':[0x7,0x4,0x6,0x4,0x7],'F':[0x7,0x4,0x6,0x4,0x4],
             'G':[0x3,0x4,0x5,0x5,0x3],'H':[0x5,0x5,0x7,0x5,0x5],'I':[0x7,0x2,0x2,0x2,0x7],
             'J':[0x1,0x1,0x1,0x5,0x2],'K':[0x5,0x5,0x6,0x5,0x5],'L':[0x4,0x4,0x4,0x4,0x7],
-            'M':[0x5,0x7,0x5,0x5,0x5],'N':[0x5,0x6,0x5,0x5,0x5],'O':[0x2,0x5,0x5,0x5,0x2],
+            'M':[0x5,0x7,0x5,0x5,0x5],'N':[0x5,0x7,0x7,0x5,0x5],'O':[0x2,0x5,0x5,0x5,0x2],
             'P':[0x6,0x5,0x6,0x4,0x4],'R':[0x6,0x5,0x6,0x5,0x5],'S':[0x3,0x4,0x2,0x1,0x6],
             'T':[0x7,0x2,0x2,0x2,0x2],'U':[0x5,0x5,0x5,0x5,0x2],'V':[0x5,0x5,0x5,0x2,0x2],
             'W':[0x5,0x5,0x5,0x7,0x5],'X':[0x5,0x5,0x2,0x5,0x5],'Y':[0x5,0x5,0x2,0x2,0x2],
@@ -54,8 +60,28 @@ class PikOS:
             '2':[0x6,0x1,0x2,0x4,0x7],'3':[0x6,0x1,0x6,0x1,0x6],'4':[0x5,0x5,0x7,0x1,0x1],
             '5':[0x7,0x4,0x6,0x1,0x6],'6':[0x3,0x4,0x6,0x5,0x2],'7':[0x7,0x1,0x2,0x2,0x2],
             '8':[0x2,0x5,0x2,0x5,0x2],'9':[0x2,0x5,0x3,0x1,0x6],'.':[0x0,0x0,0x0,0x0,0x2],
-            ':':[0x0,0x2,0x0,0x2,0x0],'-':[0x0,0x0,0x7,0x0,0x0],'/':[0x1,0x1,0x2,0x4,0x4],' ':[0x0,0x0,0x0,0x0,0x0]
+            ':':[0x0,0x2,0x0,0x2,0x0],'-':[0x0,0x0,0x7,0x0,0x0],'/':[0x1,0x1,0x2,0x4,0x4],' ':[0x0,0x0,0x0,0x0,0x0], '%': [0x5, 0x1, 0x2, 0x4, 0x5]
         }
+        
+    def get_stats(self):
+        # 1. Muisti
+        gc.collect()
+        mem_p = int((gc.mem_alloc() / (gc.mem_free() + gc.mem_alloc())) * 100)
+        
+        # 2. WiFi RSSI
+        try:
+            rssi = network.WLAN(network.STA_IF).status('rssi')
+        except:
+            rssi = 0
+            
+        # 3. Lämpötila (Pico 2 / RP2350 kaava)
+        reading = temp_sensor.read_u16() * (3.3 / 65535)
+        temp = 27 - (reading - 0.706) / 0.001721
+
+        # 4. Uptime (sekuntia)
+        uptime_sec = time.ticks_diff(time.ticks_ms(), self.start_time) // 1000
+        
+        return mem_p, rssi, temp, uptime_sec
 
     def draw_tiny(self, text, x, y):
         curr_x = x
@@ -101,7 +127,8 @@ class PikOS:
             if self.autoplay:
                 current = self.app_cycle[idx]
                 self.active_app_name = current
-                wait = 5 if current == "menu" else 20
+                #wait = 5 if current == "menu" else 20
+                wait = 20
                 for _ in range(wait):
                     if not self.autoplay: break
                     await uasyncio.sleep(1)
@@ -125,7 +152,14 @@ class PikOS:
                 await writer.drain()
                 await writer.wait_closed()
                 return # Tärkeä: lopetetaan tähän
-                
+            
+            if "/screen.bmp" in request:
+                writer.write('HTTP/1.1 200 OK\r\nContent-Type: image/bmp\r\nCache-Control: no-cache\r\n\r\n')
+                writer.write(self.get_bmp_snapshot())
+                await writer.drain()
+                await writer.wait_closed()
+                return
+    
             elif "id=autoplay" in request:
                 self.autoplay = not self.autoplay
                 
@@ -179,7 +213,18 @@ class PikOS:
             else:
                 html = self.get_main_html()
 
-            writer.write('HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n' + html)
+            # Lisätään Cache-Control ja Pragma otsikot tässä:
+            response_headers = (
+                'HTTP/1.1 200 OK\r\n'
+                'Content-Type: text/html\r\n'
+                'Cache-Control: no-cache, no-store, must-revalidate\r\n'
+                'Pragma: no-cache\r\n'
+                'Expires: 0\r\n'
+                'Connection: close\r\n\r\n'
+            )
+            
+            writer.write(response_headers + html)
+            #writer.write('HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n' + html)
             await writer.drain()
             await writer.wait_closed()
         except: pass
@@ -193,43 +238,42 @@ class PikOS:
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
             body{{font-family:sans-serif;text-align:center;background:#eee;padding:10px;margin:0;}}
+            
+            /* LIVE PREVIEW TYYLI */
+            .preview {{ 
+                width: 252px; height: 144px; /* 3x suurennos 84x48 koosta */
+                /* border: 4px solid #333; background: #fff; */
+                border: none;  
+                image-rendering: pixelated; /* Pitää kuvan terävänä */
+                margin: 10px auto; display: block; border-radius: 0px; padding: 25px; background-color: white;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            }}
+
             .btn{{display:block;width:100%;max-width:300px;margin:10px auto;padding:18px;font-size:18px;background:#007bff;color:white;border:none;border-radius:12px;text-decoration:none;font-weight:bold;}}
             .btn-auto{{background:{auto_col};}}
             .btn-red{{background:#dc3545;}}
             .btn-green{{background:#28a745;}}
             
-            /* LOMAKE SAMALLE RIVILLE */
             .city-form {{ 
-                display: flex; 
-                flex-direction: row; 
-                justify-content: center; 
-                align-items: center; 
-                gap: 5px; 
-                max-width: 300px; 
-                margin: 0 auto 15px; 
+                display: flex; flex-direction: row; justify-content: center; 
+                align-items: center; gap: 5px; max-width: 300px; margin: 0 auto 15px; 
             }}
             input {{ 
-                flex: 1; 
-                padding: 12px; 
-                font-size: 16px; 
-                border-radius: 10px; 
-                border: 1px solid #ccc; 
-                min-width: 0; /* Estää inputia puskemasta yli */
+                flex: 1; padding: 12px; font-size: 16px; border-radius: 10px; 
+                border: 1px solid #ccc; min-width: 0; 
             }}
             .set-btn {{ 
-                padding: 12px 20px; 
-                background: #007bff; 
-                color: white; 
-                border: none; 
-                border-radius: 10px; 
-                font-weight: bold; 
-                cursor: pointer;
-                white-space: nowrap; 
+                padding: 12px 20px; background: #007bff; color: white; 
+                border: none; border-radius: 10px; font-weight: bold; 
+                cursor: pointer; white-space: nowrap; 
             }}
         </style>
         </head><body>
             <h1>pikOS v1.8</h1>
             
+            <!-- LIVE RUUTUKAAPPAUS -->
+            <img id="live" class="preview" src="/screen.bmp"> 
+
             <a href="/app?id=autoplay" class="btn btn-auto">AUTOPLAY: {auto_txt}</a>
             
             <form action="/app" method="get" class="city-form">
@@ -244,9 +288,17 @@ class PikOS:
             <a href="/app?id=clock" class="btn">CLOCK</a>
             <a href="/app?id=news" class="btn">NEWS</a>
             <a href="/app?id=menu" class="btn btn-green">INFO</a>
+
+            <script>
+                // Päivitetään kuva kerran sekunnissa ilman sivun latausta
+                setInterval(() => {{
+                    document.getElementById('live').src = '/screen.bmp?t=' + Date.now();
+                }}, 1000);
+            </script>
             
         </body></html>"""
 
+    
     def get_snake_html(self):
         score = self.apps["snake"].pituus
         return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -258,9 +310,16 @@ class PikOS:
                         background: #dc3545; width: 40px; height: 40px; line-height: 40px; 
                         border-radius: 50%; display: inline-block; }}
             .score-box {{ font-size: 20px; font-weight: bold; color: #007bff; }}
-            .grid {{ display: grid; grid-template-columns: repeat(3, 80px); gap: 15px; justify-content: center; margin-top: 40px; }}
+            
+            /* LIVE RUUTU */
+            .preview {{ 
+                width: 252px; height: 144px; image-rendering: pixelated; 
+                margin: 20px auto; display: block; border: 2px solid #eee; border-radius: 8px;
+            }}
+
+            .grid {{ display: grid; grid-template-columns: repeat(3, 80px); gap: 15px; justify-content: center; margin-top: 20px; }}
             button {{ width: 80px; height: 80px; font-size: 35px; border-radius: 20px; border: 2px solid #007bff; 
-                     background: #f8f9fa; color: #007bff; box-shadow: 0 4px 0 #0056b3; }}
+                     background: #f8f9fa; color: #007bff; box-shadow: 0 4px 0 #0056b3; cursor: pointer; }}
             button:active {{ transform: translateY(4px); box-shadow: none; }}
         </style>
         </head><body>
@@ -269,39 +328,111 @@ class PikOS:
                 <div class="score-box">Pituus: <span id="s">{score}</span></div>
                 <div style="width:40px"></div>
             </div>
+
+            <!-- NÄKYMÄ LAITTEEN RUUDULTA -->
+            <img id="live" class="preview" src="/screen.bmp">
+
             <div class="grid">
                 <div></div><button onclick="go('w')">▲</button><div></div>
                 <button onclick="go('a')">◀</button><button onclick="go('s')">▼</button><button onclick="go('d')">▶</button>
             </div>
+
             <script>
                 function go(d) {{ fetch('/dir/' + d); }}
-                // Päivitetään vain pisteruutu, ei koko sivua
+                
+                // Näppäimistötuki
+                document.onkeydown = (e) => {{
+                    let k = e.key.toLowerCase();
+                    if(k=='arrowup'||k=='w') go('w');
+                    if(k=='arrowdown'||k=='s') go('s');
+                    if(k=='arrowleft'||k=='a') go('a');
+                    if(k=='arrowright'||k=='d') go('d');
+                }};
+
+                // Päivitetään kuva ja pituus
                 setInterval(async () => {{
+                    document.getElementById('live').src = '/screen.bmp?t=' + Date.now();
                     try {{
                         let r = await fetch('/status');
                         let t = await r.text();
                         document.getElementById('s').innerText = t;
                     }} catch(e) {{}}
-                }}, 2000);
+                }}, 500); // 400ms on hyvä kompromissi viiveen ja verkon kuormituksen välillä
             </script>
         </body></html>"""
+
 
 
     async def display_loop(self):
         while True:
             fb.fill(0)
             if self.active_app_name == "menu":
-                fb.text("pikOS v1.7", 0, 0, 1)
+                #fb.text("pikOS v1.8", 0, 0, 1)
+                #fb.hline(0, 9, 84, 1)
+                #self.draw_tiny("IP: " + self.ip, 0, 14)
+                #st = "AUTO: ON" if self.autoplay else "AUTO: OFF"
+                #self.draw_tiny(st, 0, 24)
+                #self.draw_tiny("READY", 0, 38)
+                fb.text("pikOS v1.8", 0, 0, 1)
                 fb.hline(0, 9, 84, 1)
-                self.draw_tiny("IP: " + self.ip, 0, 14)
-                st = "AUTO: ON" if self.autoplay else "AUTO: OFF"
-                self.draw_tiny(st, 0, 24)
-                self.draw_tiny("READY", 0, 38)
+                
+                mem, rssi, temp, upt = self.get_stats()
+                
+                self.draw_tiny(f"IP: {self.ip}", 0, 12)
+                self.draw_tiny(f"UPTIME: {upt} S", 0, 19)
+                self.draw_tiny(f"MEM: {mem}% CPU: {int(temp)}C", 0, 26)
+                self.draw_tiny(f"WIFI: {rssi} DBM", 0, 33)
+                st = "AUTOPLAY: ON" if self.autoplay else "AUTOPLAY: OFF"
+                self.draw_tiny(st, 0, 40)
+                #fb.text(st, 0, 42, 1) # Isompi teksti pohjalle
             else:
                 self.apps[self.active_app_name].draw(fb)
                 #if self.autoplay: fb.pixel(82, 0, 1)
             lcd.data(buffer)
             await uasyncio.sleep_ms(100 if self.active_app_name == "snake" else 200)
+            
+    def get_bmp_snapshot(self):
+        # Header (84x48, 1-bit)
+        header = bytearray([
+            0x42, 0x4D, 0x3E, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3E, 0x00, 0x00, 0x00, 0x28, 0x00,
+            0x00, 0x00, 0x54, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00
+        ])
+        
+        row_size = 12
+        bmp_data = bytearray(row_size * 48)
+        global buffer
+        
+        # Positiivinen gap_fix (12) siirtää vasenta lohkoa oikealle päin
+        # base_offset (20) siirtää koko kuvaa
+        base_offset = 0
+        gap_fix = 0
+
+        for y in range(48):
+            target_y = 47 - y
+            row_start = target_y * row_size
+            for x in range(84):
+                if x < 32:
+                    # Tämä siirtää vasemman puoliskon datan lukukohtaa
+                    source_x = (x + base_offset + gap_fix) % 84
+                else:
+                    source_x = (x + base_offset) % 84
+                
+                byte_idx = (y // 8) * 84 + source_x
+                bit_idx = y % 8
+
+                if (buffer[byte_idx] >> bit_idx) & 1:
+                    bmp_data[row_start + (x // 8)] |= (1 << (7 - (x % 8)))
+
+
+        
+        return header + bmp_data
+
+
+
+
+
 
 async def main():
     os = PikOS()
