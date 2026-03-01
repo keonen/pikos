@@ -11,6 +11,7 @@
 - **Dynamic Weather**: Real-time data from OpenWeatherMap with automatic IP-based location discovery.
 - **Yle News**: Latest headlines fetched directly from Yle (Finnish Broadcasting Company) Teletext API.
 - **Snake Game**: A fully playable Snake game controlled via your tablet/phone browser.
+- **RuuviTag Support**: Real-time temperature monitoring from a [RuuviTag](https://ruuvi.com) sensor via BLE (Bluetooth Low Energy).
 - **Web Control Panel**: A modern, light-themed web interface to change cities, control the game, and toggle system settings.
 
 ## 🛠 Hardware Connection (Pinout)
